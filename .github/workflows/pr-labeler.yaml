@@ -1,0 +1,254 @@
+---
+# Managed by Updater/terraform-github-upg — DO NOT EDIT directly.
+#
+# Native replacement for the PR labelling that the decommissioned gitStream
+# automation used to perform (ACT-71). Applies:
+#   * AI-tool labels (🤖 Claude Code / 🤖 Copilot / 🤖 Codex / 🤖 ai-warp) from
+#     commit-message signatures or #claude_code# / #copilot# / #codex# / #warp#
+#     tags in the title/description.
+#   * a missing-jira label + reminder comment when no Jira ticket is referenced
+#     in the PR title or description.
+#   * an AI Tools Survey comment that captures tools with no commit signature
+#     (Cursor, ChatGPT, Gemini, ...) via checkboxes, then labels from the
+#     response. Gated per-repo by the PR_LABELER_SURVEY actions variable, which
+#     Terraform sets when enable_pr_survey is true (the default; set it to false
+#     to opt a repo out).
+#
+# Uses pull_request_target so the workflow runs with the base repo's token
+# (write access for labelling, even on fork PRs). It only reads PR metadata via
+# the API and never checks out PR head code, so it is not exposed to the
+# pull_request_target privilege-escalation risk. The issue_comment trigger lets
+# it react when a PR author toggles a survey checkbox.
+
+name: PR Labeler
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]
+  issue_comment:
+    types: [created, edited]
+
+concurrency:
+  group: pr-labeler-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    # issue_comment fires on every comment in the repo; only spend a runner on
+    # those when the survey is enabled here. pull_request_target always runs.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      vars.PR_LABELER_SURVEY == 'enabled'
+    steps:
+      - name: Apply labels
+        uses: actions/github-script@v9
+        env:
+          # 'true' only when Terraform set PR_LABELER_SURVEY=enabled for this repo.
+          SURVEY_ENABLED: ${{ vars.PR_LABELER_SURVEY == 'enabled' }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const eventName = context.eventName;
+            const surveyEnabled = process.env.SURVEY_ENABLED === 'true';
+
+            const SURVEY_MARKER = 'AI Tools Survey';
+            // Survey checkbox text (as rendered) -> repo label name.
+            const SURVEY_OPTIONS = [
+              ['GitHub Copilot', '🤖 Copilot'],
+              ['Cursor', '🤖 Cursor'],
+              ['Claude Code', '🤖 Claude Code'],
+              ['Warp', '🤖 ai-warp'],
+              ['ChatGPT', '🤖 ChatGPT'],
+              ['Codex', '🤖 Codex'],
+              ['Gemini', '🤖 Gemini'],
+              ['JetBrains AI Assistant', '🤖 JetBrains AI'],
+              ['AWS Q Developer', '🤖 AWS Q'],
+              ['AWS Bedrock', '🤖 AWS Bedrock'],
+              ['Docker Gordon', '🤖 Docker Gordon'],
+              ['Devin', '🤖 Devin'],
+              ['Atlassian Intelligence', '🤖 Atlassian AI'],
+              ['Grammarly', '🤖 Grammarly'],
+              ['Other AI Tool', '🤖 Other AI'],
+              ['No AI Assistance', '🧑 No AI'],
+            ];
+            // Labels also produced by commit-signature detection. They are never
+            // removed on a survey uncheck, since the commit evidence still holds.
+            const KNOWN_COLORS = {
+              '🤖 Claude Code': '8A2BE2', '🤖 Copilot': '6E5494',
+              '🤖 Codex': '10A37F', '🤖 ai-warp': '6F42C1',
+            };
+            const colorFor = (name) =>
+              KNOWN_COLORS[name] || (name.startsWith('🧑') ? '0E8A16' : '5319E7');
+            const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+            async function ensureLabel(name, color, description) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (e) {
+                if (e.status !== 404) throw e;
+                try {
+                  await github.rest.issues.createLabel({ owner, repo, name, color, description });
+                } catch (e2) {
+                  // 422 = a concurrent run created it between getLabel and createLabel.
+                  if (e2.status !== 422) throw e2;
+                }
+              }
+            }
+            async function addLabel(issue_number, name, color, description) {
+              await ensureLabel(name, color || colorFor(name), description || 'Self-reported via the AI Tools Survey');
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [name] });
+            }
+            async function removeLabel(issue_number, name) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+              } catch (e) {
+                if (e.status !== 404) throw e;
+              }
+            }
+
+            // ===================================================================
+            // issue_comment: a survey checkbox was toggled -> sync labels.
+            // ===================================================================
+            if (eventName === 'issue_comment') {
+              if (!surveyEnabled) return;
+              const issue = context.payload.issue;
+              const comment = context.payload.comment;
+              if (!issue || !issue.pull_request) return;              // not a PR
+              if (!comment || !(comment.body || '').includes(SURVEY_MARKER)) return; // not our survey
+              // Only react to the survey our own bot posted — ignore look-alikes.
+              const commenter = (comment.user && comment.user.login) || '';
+              if (!/^github-actions(\[bot\])?$/i.test(commenter)) return;
+
+              const issue_number = issue.number;
+              const existing = (issue.labels || []).map(l => (typeof l === 'string' ? l : l.name));
+              for (const [text, label] of SURVEY_OPTIONS) {
+                const re = new RegExp(`-\\s*\\[x\\]\\s*${escapeRe(text)}`, 'i');
+                const checked = re.test(comment.body);
+                if (checked && !existing.includes(label)) {
+                  await addLabel(issue_number, label);
+                } else if (!checked && existing.includes(label) && !KNOWN_COLORS[label]) {
+                  // Survey-only label unchecked -> remove. Signature-detected
+                  // labels (in KNOWN_COLORS) stay put.
+                  await removeLabel(issue_number, label);
+                }
+              }
+              return;
+            }
+
+            // ===================================================================
+            // pull_request_target: signature labelling (+ optional survey).
+            // ===================================================================
+            const pr = context.payload.pull_request;
+            const issue_number = pr.number;
+            const title = pr.title || '';
+            const body = pr.body || '';
+            const titleAndBody = `${title}\n${body}`;
+
+            // Pull every commit message on the PR.
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner, repo, pull_number: issue_number, per_page: 100,
+            });
+            const commitMessages = commits.map(c => c.commit.message).join('\n');
+            // #tags# may appear in the title/body or in commit messages.
+            const tagText = `${titleAndBody}\n${commitMessages}`;
+
+            const currentLabels = (pr.labels || []).map(l => l.name);
+            const appliedAi = new Set();
+            const hasLabel = (name) => currentLabels.includes(name) || appliedAi.has(name);
+
+            async function addAiLabel(name, color, description) {
+              await addLabel(issue_number, name, color, description);
+              appliedAi.add(name);
+            }
+
+            // ---- AI-tool detection (commit signatures + #tags#) -------------
+            const isClaudeCode =
+              /🤖 Generated with \[Claude Code\]/.test(commitMessages) ||
+              /Co-Authored-By: Claude.*<noreply@anthropic\.com>/i.test(commitMessages) ||
+              /#claude_code#/.test(tagText);
+            const isCopilot =
+              /Co-authored-by: github-copilot/i.test(commitMessages) ||
+              /Generated by GitHub Copilot/i.test(commitMessages) ||
+              /with GitHub Copilot/i.test(commitMessages) ||
+              /#copilot#/.test(tagText);
+            const isCodex =
+              /Co-authored-by: Codex <codex@openai\.com>/i.test(commitMessages) ||
+              /<codex@openai\.com>/i.test(commitMessages) ||
+              /#codex#/.test(tagText);
+            // Warp's agent commits with a @warp.dev co-author (name varies) and
+            // links app.warp.dev conversations in the body.
+            const isWarp =
+              /<[^>]*@warp\.dev>/i.test(commitMessages) ||
+              /app\.warp\.dev/i.test(titleAndBody) ||
+              /#warp#/.test(tagText);
+
+            if (isClaudeCode && !hasLabel('🤖 Claude Code')) {
+              await addAiLabel('🤖 Claude Code', '8A2BE2', 'PR includes Claude Code-assisted changes');
+            }
+            if (isCopilot && !hasLabel('🤖 Copilot')) {
+              await addAiLabel('🤖 Copilot', '6E5494', 'PR includes GitHub Copilot-assisted changes');
+            }
+            if (isCodex && !hasLabel('🤖 Codex')) {
+              await addAiLabel('🤖 Codex', '10A37F', 'PR includes OpenAI Codex-assisted changes');
+            }
+            // Match the pre-existing org label name/color/description exactly.
+            if (isWarp && !hasLabel('🤖 ai-warp')) {
+              await addAiLabel('🤖 ai-warp', '6F42C1', 'Created by Warp AI agent');
+            }
+
+            // ---- missing-jira -----------------------------------------------
+            // A bare KEY-123 over title + body covers both gitStream forms (bare
+            // key in title, browse URL in body) without its 3-4 digit limit.
+            const hasJira = /\b[A-Za-z]+-\d+\b/.test(titleAndBody);
+            if (!hasJira) {
+              if (!hasLabel('missing-jira')) {
+                await addLabel(issue_number, 'missing-jira', 'B60205', 'PR is missing a Jira ticket reference');
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number,
+                  body: [
+                    'This PR is missing a Jira ticket reference in the title or description.',
+                    'Please add a Jira ticket reference to the title or description of this PR.',
+                  ].join('\n'),
+                });
+              }
+            } else {
+              // Clear the label once a ticket reference is added.
+              await removeLabel(issue_number, 'missing-jira');
+            }
+
+            // ---- AI Tools Survey --------------------------------------------
+            // Posted once, on PR creation, only when no AI tool was auto-detected
+            // and the author isn't a bot. Captures self-reported tools that leave
+            // no commit signature (Cursor, ChatGPT, Gemini, ...).
+            const author = pr.user || {};
+            const isBot = author.type === 'Bot' || /\[bot\]$/i.test(author.login || '') ||
+              /^(dependabot|renovate|github-actions)/i.test(author.login || '');
+            const anyAiLabel = currentLabels.concat([...appliedAi]).some(n => n.startsWith('🤖'));
+
+            if (surveyEnabled && context.payload.action === 'opened' && !isBot && !anyAiLabel) {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number, per_page: 100,
+              });
+              const alreadyPosted = comments.some(c => (c.body || '').includes(SURVEY_MARKER));
+              if (!alreadyPosted) {
+                const checkboxes = SURVEY_OPTIONS.map(([text]) => `- [ ] ${text}`).join('\n');
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number,
+                  body: [
+                    '## 🤖 AI Tools Survey',
+                    '',
+                    'Please check all AI tools that assisted in creating this PR:',
+                    '',
+                    checkboxes,
+                    '',
+                    '> 💡 **Tip**: This survey only appears when no AI tool was auto-detected from your commits.',
+                  ].join('\n'),
+                });
+              }
+            }
