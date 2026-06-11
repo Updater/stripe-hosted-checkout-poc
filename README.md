@@ -87,6 +87,8 @@ a Development-only twin of the real endpoint that stands in for the partner
 backend (which is where the key lives in a real integration). Outside
 Development neither the demo pages nor the demo endpoint exist.
 
+A step-by-step walkthrough with screenshots is in [docs/DEMO.md](docs/DEMO.md).
+
 Run the tests (domain invariants and the use case against a fake gateway — no Stripe key needed):
 
 ```bash
@@ -112,8 +114,7 @@ Headers: `X-Api-Key: <shared secret>`, `Content-Type: application/json`
     "description": "Unlimited high-speed internet",
     "amountCents": 12000,
     "currency": "usd",
-    "interval": "month",
-    "trialDays": 30
+    "interval": "month"
   },
   "quantity": 1,
   "mode": "subscription",
@@ -124,8 +125,8 @@ Headers: `X-Api-Key: <shared secret>`, `Content-Type: application/json`
 ```
 
 - `customer.email` is required, plus exactly one of `offer` (inline pricing, shown above), `priceId` (a pre-configured Stripe Price, e.g. `"priceId": "price_1ABC..."`), or `lineItems` (a multi-item bundle, below).
-- Within `offer`, only `name` and `amountCents` are required; `currency` defaults to `usd`, `interval` to `month`. `intervalCount` supports e.g. quarterly billing (`3` + `month`); `trialDays` adds a free trial. `interval`/`trialDays` apply to subscriptions only.
-- `mode` defaults to `subscription`; use `payment` for one-time charges. In `payment` mode offers default to one-time, and recurring fields (`interval`, `intervalCount`, `trialDays`, `"recurring": true`) are rejected.
+- Within `offer`, only `name` and `amountCents` are required; `currency` defaults to `usd`, `interval` to `month`. `intervalCount` supports e.g. quarterly billing (`3` + `month`). `interval` applies to subscriptions only.
+- `mode` defaults to `subscription`; use `payment` for one-time charges. In `payment` mode offers default to one-time, and recurring fields (`interval`, `intervalCount`, `"recurring": true`) are rejected.
 - `successUrl` / `cancelUrl` send the customer back to the partner's app after checkout; if omitted, the configured defaults are used.
 - `customer.externalId` is stored on the Stripe Customer (`metadata.external_id`) and on the session (`client_reference_id`) so completed checkouts can be correlated back to the partner's user.
 - **Tax** — amounts are tax-exclusive; there are two ways to collect tax:
@@ -147,7 +148,7 @@ For orders with multiple items — e.g. a recurring service plus a recurring har
 }
 ```
 
-In `subscription` mode at least one line must be recurring; `interval`, `intervalCount` and `trialDays` are rejected on non-recurring offers. If multiple recurring offers carry `trialDays`, the longest trial applies (Stripe trials are per subscription, not per item).
+In `subscription` mode at least one line must be recurring; `interval` and `intervalCount` are rejected on non-recurring offers.
 
 Response `200`:
 
