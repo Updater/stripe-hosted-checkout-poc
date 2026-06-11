@@ -1,0 +1,21 @@
+bin/
+obj/
+TestResults/
+*.user
+.DS_Store
+appsettings.*.local.json
+
+# Browser-tool inspection artifacts
+.playwright-mcp/
+starlink-checkout-step2.png
+
+# Claude Code local config and state
+.claude/agents/
+.claude/commands/
+.claude/reports/
+.claude/settings.json
+.claude/settings.local.json
+.mcp.json
+# SonarQube scanner work dirs
+.sonarqube/
+.scannerwork/

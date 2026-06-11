@@ -1,0 +1,50 @@
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{json,csproj,props,targets}]
+indent_size = 2
+
+[*.cs]
+# Report every code-style rule as a build warning (requires
+# EnforceCodeStyleInBuild in Directory.Build.props).
+dotnet_analyzer_diagnostic.category-Style.severity = warning
+
+# Options below align the style rules with the codebase's existing idiom so
+# the bulk-enable doesn't fight conventions already in use.
+
+# var everywhere
+csharp_style_var_for_built_in_types = true
+csharp_style_var_when_type_is_apparent = true
+csharp_style_var_elsewhere = true
+
+# expression bodies where they fit on one line
+csharp_style_expression_bodied_methods = when_on_single_line
+csharp_style_expression_bodied_constructors = when_on_single_line
+csharp_style_expression_bodied_operators = when_on_single_line
+csharp_style_expression_bodied_properties = true
+csharp_style_expression_bodied_indexers = true
+csharp_style_expression_bodied_accessors = true
+csharp_style_expression_bodied_lambdas = true
+csharp_style_expression_bodied_local_functions = when_on_single_line
+
+# file-scoped namespaces, no braces around single-statement guards
+csharp_style_namespace_declarations = file_scoped
+csharp_prefer_braces = when_multiline
+
+# Fluent builder/registration calls are invoked for effect; requiring
+# `_ =` discards on every call is noise.
+dotnet_diagnostic.IDE0058.severity = silent
+
+# Guard clauses that throw read better as if-statements than ternaries
+# (and SonarQube rejects the nested ternaries this rule produces).
+dotnet_diagnostic.IDE0046.severity = silent
+
+[tests/**.cs]
+# Underscored test names are the xUnit convention used throughout the suite.
+dotnet_diagnostic.CA1707.severity = none

@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Checkout.Application\Checkout.Application.csproj" />
+    <ProjectReference Include="..\Checkout.Infrastructure.Stripe\Checkout.Infrastructure.Stripe.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Checkout.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>3ef4149b-29a8-4bdb-ae97-1121bf845994</UserSecretsId>
+  </PropertyGroup>
+
+</Project>

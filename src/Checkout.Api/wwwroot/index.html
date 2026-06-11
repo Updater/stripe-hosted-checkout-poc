@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkout demo</title>
+  <style>
+    :root {
+      --accent: #635bff;
+      --accent-hover: #5851ea;
+      --text: #1a1f36;
+      --muted: #697386;
+      --border: #e6e8f0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Ubuntu, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      background: #f6f9fc;
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+    .card {
+      background: #fff;
+      width: 26rem;
+      max-width: 100%;
+      border-radius: 8px;
+      box-shadow: 0 7px 14px 0 rgba(60, 66, 87, 0.10), 0 3px 6px 0 rgba(0, 0, 0, 0.07);
+      overflow: hidden;
+    }
+    .product {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .product-art {
+      width: 3.5rem;
+      height: 3.5rem;
+      flex: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #635bff 0%, #00d4ff 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .product-art svg { width: 1.9rem; height: 1.9rem; }
+    .product-info { min-width: 0; }
+    .product-name { font-size: 1.05rem; font-weight: 600; margin: 0; }
+    .product-price { color: var(--muted); margin: 0.2rem 0 0; font-size: 0.95rem; }
+    form { padding: 1.25rem 1.5rem 1.5rem; }
+    label {
+      display: block;
+      margin: 0.9rem 0 0.3rem;
+      font-weight: 500;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    form > label:first-of-type { margin-top: 0; }
+    input, select {
+      width: 100%;
+      padding: 0.55rem 0.75rem;
+      font-size: 0.95rem;
+      font-family: inherit;
+      color: var(--text);
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 1px 1px rgba(0, 0, 0, 0.03);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.18);
+    }
+    .summary {
+      margin-top: 1.4rem;
+      padding: 0.9rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #f8fafc;
+      font-size: 0.88rem;
+    }
+    .summary-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      margin: 0.3rem 0;
+      color: var(--muted);
+    }
+    .summary-line.total {
+      color: var(--text);
+      font-weight: 600;
+      border-top: 1px solid var(--border);
+      padding-top: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    button {
+      margin-top: 1.4rem;
+      width: 100%;
+      padding: 0.7rem;
+      font-size: 1rem;
+      font-weight: 600;
+      font-family: inherit;
+      border: none;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 5.5px 0 rgba(0, 0, 0, 0.07);
+      transition: background 0.15s ease, filter 0.15s ease;
+    }
+    button:hover:not(:disabled) { background: var(--accent-hover); filter: contrast(115%); }
+    button:disabled { background: #b3aff7; cursor: default; }
+    .error {
+      margin: 1rem 0 0;
+      padding: 0.6rem 0.75rem;
+      border-radius: 6px;
+      background: #fde8e8;
+      color: #9b1c1c;
+      font-size: 0.9rem;
+    }
+    .note {
+      width: 26rem;
+      max-width: 100%;
+      margin: 1rem 0 0;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      color: var(--muted);
+      text-align: center;
+    }
+    .note code { background: #e9edf3; padding: 0.1rem 0.3rem; border-radius: 4px; }
+    .wrap { display: flex; flex-direction: column; align-items: center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="product">
+        <div class="product-art" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+            <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+            <circle cx="12" cy="20" r="1" fill="#fff" stroke="none"/>
+          </svg>
+        </div>
+        <div class="product-info">
+          <p class="product-name">Starlink Residential</p>
+          <p class="product-price" id="display-price">$120.00 / month</p>
+        </div>
+      </div>
+      <form id="checkout-form">
+        <label for="email">Customer email</label>
+        <input id="email" type="email" required value="jane@example.com">
+
+        <label for="externalId">Partner reference (<code>externalId</code>, e.g. the lead's processor token)</label>
+        <input id="externalId" required>
+
+        <label for="plan">Service plan</label>
+        <select id="plan"></select>
+
+        <label for="hardware">Hardware</label>
+        <select id="hardware"></select>
+
+        <div class="summary" id="summary" aria-live="polite"></div>
+
+        <button type="submit">Checkout</button>
+        <p id="error" class="error" role="alert" hidden></p>
+      </form>
+    </div>
+    <p class="note">
+      A sample consumer of the checkout-sessions API: it builds a Starlink-style
+      order (service plan, hardware, shipping, and tax as a one-time line, the
+      way Starlink's address-based tax step supplies it) as a
+      <code>lineItems</code> bundle and redirects you to the provider's hosted
+      payment page. The page posts to
+      a Development-only <code>/demo/checkout-sessions</code> endpoint that
+      stands in for the partner backend, so the API key stays server-side.
+    </p>
+  </div>
+
+  <script>
+    // Plans, hardware and shipping mirror the Starlink residential order flow
+    // (names and prices as recorded in dc-falcon's Starlink broker test data).
+    const PLANS = [
+      { name: 'Residential Max', description: 'Up to 400+ Mbps, unlimited data, highest residential priority', amountCents: 12000 },
+      { name: 'Residential 200 Mbps', description: 'Up to 200 Mbps, unlimited data (deprioritized)', amountCents: 8000 },
+      { name: 'Residential 100 Mbps', description: 'Up to 100 Mbps, unlimited data (deprioritized)', amountCents: 5000 },
+    ];
+    const HARDWARE = [
+      { name: 'Standard 4 X Kit', description: 'Starlink kit with Router 3', amountCents: 34900 },
+      // The rental kit is $0 upfront (billed with the service), so it adds no line.
+      { name: 'Rental Standard 4 X', description: null, amountCents: 0 },
+    ];
+    const SHIPPING = { name: 'Shipping & Handling - Standard', amountCents: 2000 };
+    // In the real flow the partner backend gets the tax from Starlink's
+    // address-based tax endpoint (POST /sign-up/tax) and passes it through as a
+    // one-time line. Only the one-time goods (hardware, shipping) are taxed —
+    // internet service is exempt — so the demo mimics it with a sales rate of
+    // 7% (the rate observed for a Hialeah, FL address).
+    const TAX_RATE = 0.07;
+
+    const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+    const dollars = cents => usd.format(cents / 100);
+
+    // In the real flow this is the partner's correlation key — for Starlink,
+    // the lead's processorToken. It lands on the Stripe Customer
+    // (metadata.external_id) and the session (client_reference_id), so the
+    // checkout.session.completed webhook can be matched back to the order.
+    document.getElementById('externalId').value = `lead-${crypto.randomUUID()}`;
+
+    const planSelect = document.getElementById('plan');
+    const hardwareSelect = document.getElementById('hardware');
+    PLANS.forEach((p, i) => planSelect.add(new Option(`${p.name} — ${dollars(p.amountCents)}/mo`, i)));
+    HARDWARE.forEach((h, i) => hardwareSelect.add(
+      new Option(`${h.name} — ${h.amountCents ? dollars(h.amountCents) : '$0 today'}`, i)));
+
+    const taxCents = hardware =>
+      Math.round((hardware.amountCents + SHIPPING.amountCents) * TAX_RATE);
+
+    const summary = document.getElementById('summary');
+    const refresh = () => {
+      const plan = PLANS[planSelect.value];
+      const hardware = HARDWARE[hardwareSelect.value];
+      const tax = taxCents(hardware);
+      const dueToday = hardware.amountCents + SHIPPING.amountCents + tax;
+      document.getElementById('display-price').textContent =
+        `${dollars(plan.amountCents)} / month + ${dollars(dueToday)} today`;
+      summary.innerHTML = `
+        <div class="summary-line"><span>${plan.name}</span><span>${dollars(plan.amountCents)}/mo</span></div>
+        <div class="summary-line"><span>${hardware.name}</span><span>${dollars(hardware.amountCents)}</span></div>
+        <div class="summary-line"><span>${SHIPPING.name}</span><span>${dollars(SHIPPING.amountCents)}</span></div>
+        <div class="summary-line"><span>Tax (on hardware &amp; shipping)</span><span>${dollars(tax)}</span></div>
+        <div class="summary-line total"><span>Due today (plus first month)</span><span>${dollars(dueToday)}</span></div>`;
+    };
+    planSelect.addEventListener('change', refresh);
+    hardwareSelect.addEventListener('change', refresh);
+    refresh();
+
+    const form = document.getElementById('checkout-form');
+    const error = document.getElementById('error');
+    const button = form.querySelector('button');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      error.hidden = true;
+      button.disabled = true;
+      try {
+        const plan = PLANS[planSelect.value];
+        const hardware = HARDWARE[hardwareSelect.value];
+        const lineItems = [
+          { offer: { name: plan.name, description: plan.description, amountCents: plan.amountCents, interval: 'month' } },
+          ...(hardware.amountCents > 0
+            ? [{ offer: { name: hardware.name, description: hardware.description, amountCents: hardware.amountCents, recurring: false } }]
+            : []),
+          { offer: { name: SHIPPING.name, amountCents: SHIPPING.amountCents, recurring: false } },
+          { offer: { name: 'Tax', amountCents: taxCents(hardware), recurring: false } },
+        ];
+
+        const response = await fetch('/demo/checkout-sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer: {
+              email: document.getElementById('email').value,
+              externalId: document.getElementById('externalId').value,
+            },
+            lineItems,
+            mode: 'subscription',
+            successUrl: `${location.origin}/success.html?session_id={CHECKOUT_SESSION_ID}`,
+            cancelUrl: `${location.origin}/cancel.html`,
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error ?? `request failed with status ${response.status}`);
+        }
+        const session = await response.json();
+        location.assign(session.checkoutUrl);
+      } catch (e) {
+        error.textContent = e.message;
+        error.hidden = false;
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
