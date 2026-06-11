@@ -1,0 +1,14 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- Surface IDE-style (code-style) diagnostics in `dotnet build` so CI
+         sees them; severities live in .editorconfig. -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- Required for IDE0005 (remove unnecessary usings) to run during dotnet build -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Suppress CS1591: projects don't enforce XML doc comments -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+</Project>

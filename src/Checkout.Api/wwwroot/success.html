@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkout complete</title>
+  <link rel="stylesheet" href="/result.css">
+</head>
+<body>
+  <div class="card">
+    <div class="badge success" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#047857" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6 9 17l-5-5"/>
+      </svg>
+    </div>
+    <h1>Payment successful</h1>
+    <p>The checkout session completed. Session id: <code id="session-id">(none)</code></p>
+    <p>In a real integration, fulfillment is driven by the
+      <code>checkout.session.completed</code> webhook — not by this page loading.</p>
+    <a class="button" href="/">Back to the demo</a>
+  </div>
+  <script>
+    const sessionId = new URLSearchParams(location.search).get('session_id');
+    if (sessionId) document.getElementById('session-id').textContent = sessionId;
+  </script>
+</body>
+</html>
