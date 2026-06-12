@@ -55,6 +55,16 @@ public class PricingTests
     }
 
     [Fact]
+    public void Offer_rejects_amount_above_the_ceiling()
+    {
+        var ex = Assert.Throws<DomainValidationException>(
+            () => Pricing.FromOffer("Plan", Pricing.MaxAmountCents + 1));
+        Assert.Contains("must not exceed", ex.Message);
+
+        Assert.IsType<AdHocOffer>(Pricing.FromOffer("Plan", Pricing.MaxAmountCents));
+    }
+
+    [Fact]
     public void Offer_rejects_intervalCount_below_one()
     {
         var ex = Assert.Throws<DomainValidationException>(

@@ -8,7 +8,13 @@ namespace Checkout.Application;
 /// </summary>
 public interface ICheckoutGateway
 {
-    Task<CheckoutSession> CreateSessionAsync(CheckoutOrder order, CancellationToken cancellationToken);
+    /// <summary>Creates a hosted checkout session for the order. The
+    /// <paramref name="idempotencyKey"/>, when the caller supplies one, lets
+    /// the provider collapse retries of the same request onto the original
+    /// result, so a retry after a lost response cannot create a second
+    /// customer or session.</summary>
+    Task<CheckoutSession> CreateSessionAsync(
+        CheckoutOrder order, string? idempotencyKey, CancellationToken cancellationToken);
 }
 
 /// <summary>A hosted checkout session created by the payment provider.</summary>

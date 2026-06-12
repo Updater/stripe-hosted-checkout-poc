@@ -205,6 +205,56 @@ public class CreateCheckoutSessionTests
     }
 
     [Fact]
+    public async Task Passes_the_idempotency_key_through_to_the_gateway()
+    {
+        await _useCase.ExecuteAsync(Command(offer: Offer()), idempotencyKey: "order-789");
+        Assert.Equal("order-789", _gateway.LastIdempotencyKey);
+
+        await _useCase.ExecuteAsync(Command(offer: Offer()));
+        Assert.Null(_gateway.LastIdempotencyKey);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Treats_a_blank_idempotency_key_as_absent(string key)
+    {
+        // A blank header must not become a shared Stripe idempotency key
+        // colliding across unrelated requests.
+        await _useCase.ExecuteAsync(Command(offer: Offer()), idempotencyKey: key);
+
+        Assert.Null(_gateway.LastIdempotencyKey);
+    }
+
+    [Fact]
+    public async Task Trims_surrounding_whitespace_from_the_idempotency_key()
+    {
+        await _useCase.ExecuteAsync(Command(offer: Offer()), idempotencyKey: " order-789 ");
+
+        Assert.Equal("order-789", _gateway.LastIdempotencyKey);
+    }
+
+    [Fact]
+    public async Task Rejects_an_overlong_idempotency_key()
+    {
+        var key = new string('k', CreateCheckoutSession.MaxIdempotencyKeyLength + 1);
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(
+            () => _useCase.ExecuteAsync(Command(offer: Offer()), idempotencyKey: key));
+        Assert.Contains("Idempotency-Key", ex.Message);
+    }
+
+    [Fact]
+    public async Task Passes_the_provider_customer_id_through_to_the_order()
+    {
+        await _useCase.ExecuteAsync(Command(
+            customer: new CustomerDto("jane@example.com", null, null, "u-12345", "cus_canonical_789"),
+            offer: Offer()));
+
+        Assert.Equal("cus_canonical_789", _gateway.LastOrder!.Customer.ProviderCustomerId);
+    }
+
+    [Fact]
     public async Task Rejects_missing_customer()
     {
         var ex = await Assert.ThrowsAsync<DomainValidationException>(() => _useCase.ExecuteAsync(
@@ -217,10 +267,13 @@ public class CreateCheckoutSessionTests
 internal sealed class FakeCheckoutGateway : ICheckoutGateway
 {
     public CheckoutOrder? LastOrder { get; private set; }
+    public string? LastIdempotencyKey { get; private set; }
 
-    public Task<CheckoutSession> CreateSessionAsync(CheckoutOrder order, CancellationToken cancellationToken)
+    public Task<CheckoutSession> CreateSessionAsync(
+        CheckoutOrder order, string? idempotencyKey, CancellationToken cancellationToken)
     {
         LastOrder = order;
+        LastIdempotencyKey = idempotencyKey;
         return Task.FromResult(new CheckoutSession(
             "cs_fake_123",
             new Uri("https://checkout.example.com/c/pay/cs_fake_123"),

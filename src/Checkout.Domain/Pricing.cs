@@ -15,6 +15,14 @@ public abstract record Pricing
         return new ProviderPrice(priceId);
     }
 
+    /// <summary>
+    /// Ceiling on a single line's unit amount ($1,000,000.00). Well below
+    /// Stripe's own maximum; a typo'd or hostile amount must fail fast as a
+    /// 400 here rather than settle as real money. Raise it deliberately if the
+    /// business ever sells anything close.
+    /// </summary>
+    public const long MaxAmountCents = 100_000_000;
+
     public static Pricing FromOffer(
         string? name,
         long amountCents,
@@ -31,6 +39,8 @@ public abstract record Pricing
             throw new DomainValidationException("offer.name is required");
         if (amountCents <= 0)
             throw new DomainValidationException("offer.amountCents must be positive");
+        if (amountCents > MaxAmountCents)
+            throw new DomainValidationException($"offer.amountCents must not exceed {MaxAmountCents}");
         if (intervalCount is < 1)
             throw new DomainValidationException("offer.intervalCount must be at least 1");
         if (trialDays is < 1)

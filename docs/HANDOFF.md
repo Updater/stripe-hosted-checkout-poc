@@ -96,7 +96,10 @@ dotnet user-secrets set "Api:Key" "some-shared-secret" --project src/Checkout.Ap
 ## The endpoint the caller uses
 
 `POST /api/checkout-sessions` — headers `X-Api-Key: <shared secret>` and
-`Content-Type: application/json`. Minimal body:
+`Content-Type: application/json`. Callers should also send an
+`Idempotency-Key` header (a unique key per logical request, resent verbatim on
+retries) so a retry after a timeout cannot create a duplicate customer or
+session. Minimal body:
 
 ```json
 {
@@ -117,7 +120,9 @@ Response `200`:
 ```
 
 The caller redirects the end-user to `checkoutUrl`. Errors: `401` (bad/missing API key),
-`400` (validation), `502` (Stripe rejected the request, with `{ "error": "…" }`).
+`400` (validation), `502` (Stripe rejected the request), `500` (unexpected failure,
+generic message — details stay in the server log); all but `401` carry
+`{ "error": "…" }`.
 
 `GET /healthz` returns `{ "status": "ok" }` for load-balancer health checks and requires
 no API key.
@@ -143,21 +148,19 @@ one-time vs. subscription mode, trials, and metadata — is documented in
   where your account's webhook signing secret lives.)
 - **Network:** restrict inbound access to the caller's IP ranges in addition to the
   `X-Api-Key` check.
-- **Tax:** line amounts are tax-exclusive. If your side already computes tax from the
-  service address before checkout (only one-time goods are typically taxable — US
-  internet *service* is tax-exempt, so there is no recurring tax to track), the caller
-  simply includes it as a one-time `"Tax"` line item — no Stripe setup needed, and your
-  tax engine stays the source of truth. Alternatively, to have Stripe compute and collect
-  sales tax from the address the customer enters at checkout (including on subscription
-  renewals, should the service itself ever be taxable), enable
-  [Stripe Tax](https://docs.stripe.com/tax) on your account (it needs an origin address
-  and tax registrations) and have the caller send `"automaticTax": true`; sessions
-  requesting it without Stripe Tax enabled are rejected by Stripe and surface as a `502`.
+- **Tax:** line amounts are tax-exclusive. Callers that compute tax upstream include it
+  as a one-time `"Tax"` line item — no Stripe setup needed. To have Stripe compute it at
+  checkout instead (`"automaticTax": true`), enable
+  [Stripe Tax](https://docs.stripe.com/tax) on your account; sessions requesting it
+  without Stripe Tax enabled are rejected with a `400`.
 - **Key rotation:** rotate `Api:Key` periodically and coordinate the change with the
   caller; rotate the Stripe key through your Stripe Dashboard.
-- **Customer mapping:** the service finds-or-creates the Stripe Customer by email. If you
-  already maintain canonical customer records in Stripe, point this at your own mapping
-  (see `FindOrCreateCustomerAsync` in `StripeCheckoutGateway`).
+- **Customer mapping:** the service finds-or-creates the Stripe Customer by email, and
+  two concurrent first-time checkouts for the same email can race and create duplicates.
+  If the caller already knows the customer's Stripe ID, it should send it as
+  `customer.providerCustomerId` — that bypasses the email lookup (and the race) entirely.
+- **Rate limiting:** nothing in-process bounds request volume; throttle at the reverse
+  proxy or API gateway in front of this service.
 - **Logging:** request logging records method, path, status, and duration only — never
   headers or bodies — so the API key and customer data stay out of the logs. Keep it that
   way if you extend logging.

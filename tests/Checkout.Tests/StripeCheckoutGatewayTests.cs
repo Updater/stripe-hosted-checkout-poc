@@ -1,6 +1,7 @@
 using Checkout.Application;
 using Checkout.Domain;
 using Checkout.Infrastructure.Stripe;
+using Microsoft.Extensions.Logging;
 using Stripe;
 using Stripe.Checkout;
 using DomainCustomer = Checkout.Domain.Customer;
@@ -44,7 +45,7 @@ public class StripeCheckoutGatewayTests
     {
         var order = CheckoutOrder.Create(Jane, Recurring());
 
-        var session = await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        var session = await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.Equal("jane@example.com", _customers.LastList!.Email);
         Assert.Equal("jane@example.com", _customers.LastCreate!.Email);
@@ -61,7 +62,7 @@ public class StripeCheckoutGatewayTests
         _customers.Existing = new StripeCustomer { Id = "cus_existing_456" };
         var order = CheckoutOrder.Create(Jane, Recurring());
 
-        var session = await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        var session = await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.Null(_customers.LastCreate);
         Assert.Equal("cus_existing_456", session.CustomerId);
@@ -72,13 +73,14 @@ public class StripeCheckoutGatewayTests
     public async Task Passes_special_character_emails_verbatim_through_the_structured_filter()
     {
         // The lookup is a structured list filter, not a search-query string, so
-        // quotes and backslashes cannot inject extra clauses.
+        // quotes cannot inject extra clauses. (Backslash-escaped emails are now
+        // rejected by domain validation before they reach the gateway.)
         var order = CheckoutOrder.Create(
-            DomainCustomer.Create(@"miles.o'brien\@example.com"), Recurring());
+            DomainCustomer.Create("miles.o'brien@example.com"), Recurring());
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
-        Assert.Equal(@"miles.o'brien\@example.com", _customers.LastList!.Email);
+        Assert.Equal("miles.o'brien@example.com", _customers.LastList!.Email);
     }
 
     [Fact]
@@ -86,7 +88,7 @@ public class StripeCheckoutGatewayTests
     {
         var order = CheckoutOrder.Create(Jane, Pricing.FromPriceId("price_1ABC"), quantity: 2);
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         var line = Assert.Single(_sessions.LastOptions!.LineItems);
         Assert.Equal("price_1ABC", line.Price);
@@ -102,7 +104,7 @@ public class StripeCheckoutGatewayTests
             "Residential 100 Mbps", 5500, "Up to 100 Mbps", "EUR",
             new OfferSchedule(Interval: BillingInterval.Week, IntervalCount: 2)));
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         var priceData = Assert.Single(_sessions.LastOptions!.LineItems).PriceData;
         Assert.Equal("eur", priceData.Currency);
@@ -119,7 +121,7 @@ public class StripeCheckoutGatewayTests
         var order = CheckoutOrder.Create(
             Jane, [OrderLine.Create(Recurring()), OrderLine.Create(OneTime())]);
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.Equal(2, _sessions.LastOptions!.LineItems.Count);
         Assert.NotNull(_sessions.LastOptions.LineItems[0].PriceData.Recurring);
@@ -132,7 +134,7 @@ public class StripeCheckoutGatewayTests
         var order = CheckoutOrder.Create(
             Jane, [OrderLine.Create(OneTime())], CheckoutMode.Payment);
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.Equal("payment", _sessions.LastOptions!.Mode);
         Assert.Null(Assert.Single(_sessions.LastOptions.LineItems).PriceData.Recurring);
@@ -145,7 +147,7 @@ public class StripeCheckoutGatewayTests
         var order = CheckoutOrder.Create(
             Jane, [OrderLine.Create(Recurring(trialDays: 7)), OrderLine.Create(Recurring(trialDays: 30))]);
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.Equal(30, _sessions.LastOptions!.SubscriptionData!.TrialPeriodDays);
     }
@@ -155,7 +157,7 @@ public class StripeCheckoutGatewayTests
     {
         var order = CheckoutOrder.Create(Jane, Recurring());
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.Null(_sessions.LastOptions!.SubscriptionData);
     }
@@ -165,7 +167,7 @@ public class StripeCheckoutGatewayTests
     {
         var order = CheckoutOrder.Create(Jane, Recurring());
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.Null(_sessions.LastOptions!.AutomaticTax);
     }
@@ -176,7 +178,7 @@ public class StripeCheckoutGatewayTests
         var order = CheckoutOrder.Create(
             Jane, [OrderLine.Create(Recurring())], automaticTax: true);
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.True(_sessions.LastOptions!.AutomaticTax!.Enabled);
     }
@@ -189,7 +191,7 @@ public class StripeCheckoutGatewayTests
             cancelUrl: new Uri("https://partner.example.com/cancel"),
             metadata: new Dictionary<string, string> { ["campaign"] = "spring-promo" });
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.Equal("https://partner.example.com/ok?session_id={CHECKOUT_SESSION_ID}", _sessions.LastOptions!.SuccessUrl);
         Assert.Equal("https://partner.example.com/cancel", _sessions.LastOptions.CancelUrl);
@@ -202,7 +204,7 @@ public class StripeCheckoutGatewayTests
     {
         var order = CheckoutOrder.Create(Jane, Recurring());
 
-        await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.Equal("https://merchant.example.com/success?session_id={CHECKOUT_SESSION_ID}", _sessions.LastOptions!.SuccessUrl);
         Assert.Equal("https://merchant.example.com/cancel", _sessions.LastOptions.CancelUrl);
@@ -213,11 +215,82 @@ public class StripeCheckoutGatewayTests
     {
         var order = CheckoutOrder.Create(Jane, Recurring());
 
-        var session = await _gateway.CreateSessionAsync(order, CancellationToken.None);
+        var session = await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
 
         Assert.Equal("cs_stub_123", session.SessionId);
         Assert.Equal("https://checkout.stripe.example/c/cs_stub_123", session.CheckoutUrl.OriginalString);
         Assert.Equal(new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc), session.ExpiresAtUtc);
+    }
+
+    [Fact]
+    public async Task Sends_per_operation_idempotency_keys_on_both_writes()
+    {
+        var order = CheckoutOrder.Create(Jane, Recurring());
+
+        await _gateway.CreateSessionAsync(order, "order-789", CancellationToken.None);
+
+        Assert.Equal("order-789:customer", _customers.LastCreateRequestOptions!.IdempotencyKey);
+        Assert.Equal("order-789:session", _sessions.LastRequestOptions!.IdempotencyKey);
+    }
+
+    [Fact]
+    public async Task Sends_no_idempotency_options_when_the_caller_supplies_no_key()
+    {
+        var order = CheckoutOrder.Create(Jane, Recurring());
+
+        await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
+
+        Assert.Null(_customers.LastCreateRequestOptions);
+        Assert.Null(_sessions.LastRequestOptions);
+    }
+
+    [Fact]
+    public async Task Uses_a_caller_supplied_provider_customer_id_without_any_lookup()
+    {
+        var order = CheckoutOrder.Create(
+            DomainCustomer.Create("jane@example.com", providerCustomerId: "cus_canonical_789"), Recurring());
+
+        var session = await _gateway.CreateSessionAsync(order, null, CancellationToken.None);
+
+        Assert.Null(_customers.LastList);
+        Assert.Null(_customers.LastCreate);
+        Assert.Equal("cus_canonical_789", session.CustomerId);
+        Assert.Equal("cus_canonical_789", _sessions.LastOptions!.Customer);
+    }
+
+    [Fact]
+    public async Task Maps_automatic_tax_misconfiguration_to_a_validation_error_and_logs_it()
+    {
+        // The 400 path is not logged by the endpoint, so the gateway itself
+        // must leave a server-side trace of the merchant misconfiguration.
+        var logger = new CollectingLogger();
+        var gateway = new StripeCheckoutGateway(
+            new StripeOptions
+            {
+                SecretKey = "sk_test_placeholder",
+                DefaultSuccessUrl = "https://merchant.example.com/success?session_id={CHECKOUT_SESSION_ID}",
+                DefaultCancelUrl = "https://merchant.example.com/cancel",
+            },
+            _customers, _sessions, logger);
+        var stripeError = new StripeException("http transport detail")
+        {
+            StripeError = new StripeError
+            {
+                Param = "automatic_tax[enabled]",
+                Message = "You must have tax settings configured to use automatic_tax.",
+            },
+        };
+        _sessions.OnCreate = () => throw stripeError;
+        var order = CheckoutOrder.Create(Jane, [OrderLine.Create(Recurring())], automaticTax: true);
+
+        var ex = await Assert.ThrowsAsync<DomainValidationException>(
+            () => gateway.CreateSessionAsync(order, null, CancellationToken.None));
+
+        Assert.Contains("Stripe Tax", ex.Message);
+        Assert.Same(stripeError, ex.InnerException);
+        var logged = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Error, logged.Level);
+        Assert.Same(stripeError, logged.Exception);
     }
 
     [Fact]
@@ -230,7 +303,7 @@ public class StripeCheckoutGatewayTests
         var order = CheckoutOrder.Create(Jane, Recurring());
 
         var ex = await Assert.ThrowsAsync<CheckoutGatewayException>(
-            () => _gateway.CreateSessionAsync(order, CancellationToken.None));
+            () => _gateway.CreateSessionAsync(order, null, CancellationToken.None));
 
         Assert.Equal("Your card was declined.", ex.Message);
         Assert.IsType<StripeException>(ex.InnerException);
@@ -243,7 +316,7 @@ public class StripeCheckoutGatewayTests
         var order = CheckoutOrder.Create(Jane, Recurring());
 
         var ex = await Assert.ThrowsAsync<CheckoutGatewayException>(
-            () => _gateway.CreateSessionAsync(order, CancellationToken.None));
+            () => _gateway.CreateSessionAsync(order, null, CancellationToken.None));
 
         Assert.Equal("connection reset", ex.Message);
     }
@@ -252,6 +325,7 @@ public class StripeCheckoutGatewayTests
     {
         public CustomerListOptions? LastList { get; private set; }
         public CustomerCreateOptions? LastCreate { get; private set; }
+        public RequestOptions? LastCreateRequestOptions { get; private set; }
         public StripeCustomer? Existing { get; set; }
 
         public override Task<StripeList<StripeCustomer>> ListAsync(
@@ -270,13 +344,27 @@ public class StripeCheckoutGatewayTests
             CancellationToken cancellationToken = default)
         {
             LastCreate = options;
+            LastCreateRequestOptions = requestOptions;
             return Task.FromResult(new StripeCustomer { Id = "cus_new_123" });
         }
+    }
+
+    private sealed class CollectingLogger : ILogger
+    {
+        public List<(LogLevel Level, Exception? Exception)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, exception));
     }
 
     private sealed class StubSessionService : SessionService
     {
         public SessionCreateOptions? LastOptions { get; private set; }
+        public RequestOptions? LastRequestOptions { get; private set; }
         public Func<Session>? OnCreate { get; set; }
 
         public override Task<Session> CreateAsync(
@@ -284,6 +372,7 @@ public class StripeCheckoutGatewayTests
             CancellationToken cancellationToken = default)
         {
             LastOptions = options;
+            LastRequestOptions = requestOptions;
             return Task.FromResult(OnCreate?.Invoke() ?? new Session
             {
                 Id = "cs_stub_123",

@@ -38,6 +38,13 @@ public sealed class CheckoutOrder
     public bool AutomaticTax { get; }
 
     /// <summary>
+    /// Ceiling on lines per order. Real orders here are a service plan plus a
+    /// few add-ons; far more than that is a caller bug. Stripe's own session
+    /// limit is higher (100) — this fails the obviously wrong case fast.
+    /// </summary>
+    public const int MaxLineCount = 20;
+
+    /// <summary>
     /// Convenience for the common single-offer subscription order. Payment-mode
     /// orders go through the line-list overload.
     /// </summary>
@@ -63,6 +70,9 @@ public sealed class CheckoutOrder
     {
         if (lines.Count == 0)
             throw new DomainValidationException("the order must contain at least one line item");
+
+        if (lines.Count > MaxLineCount)
+            throw new DomainValidationException($"the order must not contain more than {MaxLineCount} line items");
 
         // A subscription needs something to subscribe to. Provider prices are
         // opaque here, so only reject when every line is a known one-time offer.
@@ -97,10 +107,17 @@ public sealed record OrderLine
     public Pricing Pricing { get; }
     public long Quantity { get; }
 
+    /// <summary>Ceiling on a line's quantity; a typo'd quantity must fail as
+    /// a 400 rather than multiply into a real charge.</summary>
+    public const long MaxQuantity = 999;
+
     public static OrderLine Create(Pricing pricing, long? quantity = null)
     {
         if (quantity is < 1)
             throw new DomainValidationException("quantity must be at least 1");
+
+        if (quantity > MaxQuantity)
+            throw new DomainValidationException($"quantity must not exceed {MaxQuantity}");
 
         return new OrderLine(pricing, quantity ?? 1);
     }

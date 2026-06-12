@@ -78,4 +78,26 @@ public class CheckoutOrderTests
             () => OrderLine.Create(Recurring(), quantity));
         Assert.Contains("quantity must be at least 1", ex.Message);
     }
+
+    [Fact]
+    public void Line_rejects_quantity_above_the_ceiling()
+    {
+        var ex = Assert.Throws<DomainValidationException>(
+            () => OrderLine.Create(Recurring(), OrderLine.MaxQuantity + 1));
+        Assert.Contains("must not exceed", ex.Message);
+
+        Assert.Equal(OrderLine.MaxQuantity, OrderLine.Create(Recurring(), OrderLine.MaxQuantity).Quantity);
+    }
+
+    [Fact]
+    public void Order_rejects_more_lines_than_the_ceiling()
+    {
+        var tooMany = Enumerable.Range(0, CheckoutOrder.MaxLineCount + 1)
+            .Select(_ => OrderLine.Create(Recurring()))
+            .ToList();
+
+        var ex = Assert.Throws<DomainValidationException>(
+            () => CheckoutOrder.Create(Jane, tooMany));
+        Assert.Contains($"more than {CheckoutOrder.MaxLineCount} line items", ex.Message);
+    }
 }

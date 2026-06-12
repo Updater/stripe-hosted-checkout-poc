@@ -3,6 +3,7 @@ using Checkout.Application;
 using Checkout.Domain;
 using Checkout.Infrastructure.Stripe;
 using Microsoft.AspNetCore.HttpLogging;
+using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,12 +38,17 @@ if (!app.Environment.IsDevelopment())
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 
 var createCheckoutSession =
-    async (CreateCheckoutSessionCommand command, CreateCheckoutSession useCase,
+    async (CreateCheckoutSessionCommand command,
+        // Standard retry-safety header: callers send the same key when
+        // retrying a timed-out request so Stripe returns the original result
+        // instead of creating a second customer/session.
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CreateCheckoutSession useCase,
         ILogger<CreateCheckoutSession> logger, CancellationToken ct) =>
     {
         try
         {
-            var session = await useCase.ExecuteAsync(command, ct);
+            var session = await useCase.ExecuteAsync(command, idempotencyKey, ct);
             return Results.Ok(new
             {
                 sessionId = session.SessionId,
@@ -61,6 +67,21 @@ var createCheckoutSession =
             // exception (Stripe error code, request id) in the server log.
             Log.CheckoutGatewayFailure(logger, e);
             return Results.Json(new { error = e.Message }, statusCode: StatusCodes.Status502BadGateway);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The caller is gone; let the framework handle the aborted request.
+            throw;
+        }
+        catch (Exception e)
+        {
+            // Anything else is a bug, but the error contract must stay
+            // consistent: same { "error": ... } envelope, internals only in
+            // the server log — never in the response.
+            Log.UnexpectedFailure(logger, e);
+            return Results.Json(
+                new { error = "an unexpected error occurred" },
+                statusCode: StatusCodes.Status500InternalServerError);
         }
     };
 
