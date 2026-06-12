@@ -139,10 +139,55 @@ public class CheckoutApiTests
         Assert.Equal("the payment provider rejected the request", body.GetProperty("error").GetString());
     }
 
-    private sealed class ThrowingCheckoutGateway : ICheckoutGateway
+    [Fact]
+    public async Task Maps_unexpected_failures_to_500_with_the_same_error_envelope()
     {
-        public Task<CheckoutSession> CreateSessionAsync(CheckoutOrder order, CancellationToken cancellationToken) =>
-            throw new CheckoutGatewayException(
+        using var factory = CreateFactory(new ThrowingCheckoutGateway(
+            new InvalidOperationException("internal detail that must not leak")));
+        using var client = CreateClient(factory);
+
+        var response = await client.SendAsync(Request(ValidBody()));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("an unexpected error occurred", body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Forwards_the_idempotency_key_header_to_the_gateway()
+    {
+        var gateway = new FakeCheckoutGateway();
+        using var factory = CreateFactory(gateway);
+        using var client = CreateClient(factory);
+
+        var request = Request(ValidBody());
+        request.Headers.Add("Idempotency-Key", "order-789");
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("order-789", gateway.LastIdempotencyKey);
+    }
+
+    [Fact]
+    public async Task Treats_a_blank_idempotency_key_header_as_absent()
+    {
+        var gateway = new FakeCheckoutGateway();
+        using var factory = CreateFactory(gateway);
+        using var client = CreateClient(factory);
+
+        var request = Request(ValidBody());
+        request.Headers.TryAddWithoutValidation("Idempotency-Key", "   ");
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Null(gateway.LastIdempotencyKey);
+    }
+
+    private sealed class ThrowingCheckoutGateway(Exception? exception = null) : ICheckoutGateway
+    {
+        public Task<CheckoutSession> CreateSessionAsync(
+            CheckoutOrder order, string? idempotencyKey, CancellationToken cancellationToken) =>
+            throw exception ?? new CheckoutGatewayException(
                 "the payment provider rejected the request",
                 new InvalidOperationException("provider error detail"));
     }

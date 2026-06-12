@@ -99,7 +99,7 @@ dotnet test
 
 ### `POST /api/checkout-sessions`
 
-Headers: `X-Api-Key: <shared secret>`, `Content-Type: application/json`
+Headers: `X-Api-Key: <shared secret>`, `Content-Type: application/json`, and optionally `Idempotency-Key: <unique key per logical request>` — when retrying a request that timed out, resend the **same** key and Stripe returns the original result instead of creating a second customer or session. Strongly recommended for production callers (max 200 characters).
 
 ```json
 {
@@ -129,9 +129,9 @@ Headers: `X-Api-Key: <shared secret>`, `Content-Type: application/json`
 - `mode` defaults to `subscription`; use `payment` for one-time charges. In `payment` mode offers default to one-time, and recurring fields (`interval`, `intervalCount`, `"recurring": true`) are rejected.
 - `successUrl` / `cancelUrl` send the customer back to the partner's app after checkout; if omitted, the configured defaults are used.
 - `customer.externalId` is stored on the Stripe Customer (`metadata.external_id`) and on the session (`client_reference_id`) so completed checkouts can be correlated back to the partner's user.
-- **Tax** — amounts are tax-exclusive; there are two ways to collect tax:
-  - *Caller-computed (recommended when the caller already knows the tax)*: send it as one more one-time line, e.g. `{ "offer": { "name": "Tax", "amountCents": 1533, "recurring": false } }`. This fits flows where tax is computed upstream from the service address before checkout (as Starlink's `/sign-up/tax` step does) and only one-time goods are taxed — US internet *service* is tax-exempt, so there is no recurring tax to track. It appears on the Stripe page as a line named "Tax" rather than in Stripe's native tax field.
-  - *Stripe-computed*: `"automaticTax": true` has Stripe compute and collect tax at checkout from the address the customer enters there — including on subscription renewals, so use this if the recurring service itself is ever taxable. Requires [Stripe Tax](https://docs.stripe.com/tax) to be enabled on the merchant account — without it Stripe rejects the session (returned as `502`). Defaults to `false`.
+- `customer.providerCustomerId` (optional) is the existing Stripe Customer ID to attach the session to. When supplied, the find-or-create-by-email lookup is skipped entirely — send it whenever the caller already knows the customer's Stripe ID; it is the reliable way to avoid duplicate customers (see hardening notes below).
+- Amounts, quantities, and bundle sizes are bounded: `amountCents` ≤ 100,000,000 per line ($1M), `quantity` ≤ 999, and at most 20 `lineItems`. Out-of-range values fail fast as `400` instead of reaching Stripe.
+- **Tax** — amounts are tax-exclusive. If the caller computes tax upstream (the recommended flow), send it as one more one-time line, e.g. `{ "offer": { "name": "Tax", "amountCents": 1533, "recurring": false } }`. Alternatively, `"automaticTax": true` (default `false`) has Stripe compute and collect tax at checkout, including on subscription renewals; it requires [Stripe Tax](https://docs.stripe.com/tax) to be enabled on the merchant account, otherwise the session is rejected with a `400`.
 
 #### Bundle orders (`lineItems`)
 
@@ -161,7 +161,7 @@ Response `200`:
 }
 ```
 
-Errors: `401` bad/missing API key, `400` missing required fields, `502` with `{ "error": "..." }` when Stripe rejects the request.
+Errors share the `{ "error": "..." }` envelope: `400` invalid input, `502` when Stripe rejects the request, `500` (with a generic message — details stay in the server log) for unexpected failures. `401` for a bad/missing API key has an empty body.
 
 ### `GET /healthz`
 
@@ -183,4 +183,10 @@ curl -s -X POST https://localhost:7210/api/checkout-sessions \
 
 - Add a Stripe [webhook handler](https://docs.stripe.com/checkout/fulfillment) for `checkout.session.completed` to confirm fulfillment server-side.
 - Restrict inbound network access to the partner's IPs in addition to the API key.
-- The customer lookup lists Stripe Customers by exact email (read-after-write consistent, unlike Customer Search); if the merchant already has its own customer records in Stripe, replace this with their canonical mapping. Two concurrent first-time checkouts for the same email can still race and create duplicate customers — Stripe does not enforce email uniqueness, so a canonical mapping (or idempotency keys) is the real fix.
+- The customer lookup lists Stripe Customers by exact email (read-after-write consistent, unlike Customer Search). Two concurrent *distinct* first-time checkouts for the same email can still race and create duplicate customers — Stripe does not enforce email uniqueness, and idempotency keys do not help here because distinct requests carry different keys. The fix is a canonical mapping: have the caller send `customer.providerCustomerId`, which bypasses the lookup entirely.
+- Have callers send the `Idempotency-Key` header so network-level retries of the same request cannot create duplicate customers or sessions.
+- Rate-limit the endpoint at the reverse proxy / API gateway in front of this service; nothing in-process bounds request volume.
+
+## License
+
+[MIT](LICENSE)

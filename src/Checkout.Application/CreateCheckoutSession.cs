@@ -9,15 +9,30 @@ namespace Checkout.Application;
 /// </summary>
 public sealed class CreateCheckoutSession(ICheckoutGateway gateway)
 {
+    /// <summary>Stripe caps idempotency keys at 255 characters; stay below it
+    /// so the per-call suffixes the gateway appends still fit.</summary>
+    public const int MaxIdempotencyKeyLength = 200;
+
     public async Task<CheckoutSession> ExecuteAsync(
         CreateCheckoutSessionCommand command,
+        string? idempotencyKey = null,
         CancellationToken cancellationToken = default)
     {
+        // A blank header must not become a real key: every such request would
+        // share the same Stripe idempotency key and collide across callers.
+        idempotencyKey = string.IsNullOrWhiteSpace(idempotencyKey) ? null : idempotencyKey.Trim();
+        if (idempotencyKey is { Length: > MaxIdempotencyKeyLength })
+        {
+            throw new DomainValidationException(
+                $"Idempotency-Key must not exceed {MaxIdempotencyKeyLength} characters");
+        }
+
         var customer = Customer.Create(
             command.Customer?.Email,
             command.Customer?.Name,
             command.Customer?.Phone,
-            command.Customer?.ExternalId);
+            command.Customer?.ExternalId,
+            command.Customer?.ProviderCustomerId);
 
         var mode = ParseMode(command.Mode);
 
@@ -30,7 +45,7 @@ public sealed class CreateCheckoutSession(ICheckoutGateway gateway)
             command.Metadata,
             command.AutomaticTax ?? false);
 
-        return await gateway.CreateSessionAsync(order, cancellationToken);
+        return await gateway.CreateSessionAsync(order, idempotencyKey, cancellationToken);
     }
 
     private static List<OrderLine> ParseLines(CreateCheckoutSessionCommand command, CheckoutMode mode)
@@ -113,7 +128,8 @@ public sealed record CustomerDto(
     string? Email,
     string? Name,
     string? Phone,
-    string? ExternalId);
+    string? ExternalId,
+    string? ProviderCustomerId = null);
 
 public sealed record LineItemDto(
     string? PriceId,

@@ -23,7 +23,9 @@ public class StripeRegistrationTests
     private static ServiceProvider Build(Dictionary<string, string?> settings)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
-        return new ServiceCollection().AddStripeCheckout(configuration).BuildServiceProvider();
+        // AddLogging mirrors the host, which always registers logging; the
+        // gateway takes an ILogger to record provider misconfigurations.
+        return new ServiceCollection().AddLogging().AddStripeCheckout(configuration).BuildServiceProvider();
     }
 
     [Fact]

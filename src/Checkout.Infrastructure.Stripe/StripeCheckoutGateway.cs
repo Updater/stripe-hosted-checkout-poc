@@ -1,5 +1,7 @@
 using Checkout.Application;
 using Checkout.Domain;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Stripe;
 using Stripe.Checkout;
@@ -15,31 +17,35 @@ public sealed class StripeCheckoutGateway : ICheckoutGateway
     private readonly CustomerService _customers;
     private readonly SessionService _sessions;
     private readonly StripeOptions _options;
+    private readonly ILogger _logger;
 
-    public StripeCheckoutGateway(IOptions<StripeOptions> options)
-        : this(options.Value, new StripeClient(options.Value.SecretKey)) { }
+    public StripeCheckoutGateway(IOptions<StripeOptions> options, ILogger<StripeCheckoutGateway> logger)
+        : this(options.Value, new StripeClient(options.Value.SecretKey), logger) { }
 
-    private StripeCheckoutGateway(StripeOptions options, StripeClient client)
-        : this(options, new CustomerService(client), new SessionService(client)) { }
+    private StripeCheckoutGateway(StripeOptions options, StripeClient client, ILogger logger)
+        : this(options, new CustomerService(client), new SessionService(client), logger) { }
 
     /// <summary>Test seam: lets tests substitute stub Stripe services.</summary>
-    internal StripeCheckoutGateway(StripeOptions options, CustomerService customers, SessionService sessions)
+    internal StripeCheckoutGateway(
+        StripeOptions options, CustomerService customers, SessionService sessions, ILogger? logger = null)
     {
         _options = options;
         _customers = customers;
         _sessions = sessions;
+        _logger = logger ?? NullLogger.Instance;
     }
 
-    public async Task<CheckoutSession> CreateSessionAsync(CheckoutOrder order, CancellationToken cancellationToken)
+    public async Task<CheckoutSession> CreateSessionAsync(
+        CheckoutOrder order, string? idempotencyKey, CancellationToken cancellationToken)
     {
         try
         {
-            var customer = await FindOrCreateCustomerAsync(order.Customer, cancellationToken);
+            var customerId = await ResolveCustomerIdAsync(order.Customer, idempotencyKey, cancellationToken);
 
             var session = await _sessions.CreateAsync(new SessionCreateOptions
             {
                 Mode = order.Mode == CheckoutMode.Subscription ? "subscription" : "payment",
-                Customer = customer.Id,
+                Customer = customerId,
                 LineItems = [.. order.Lines.Select(ToLineItem)],
                 SubscriptionData = ToSubscriptionData(order),
                 SuccessUrl = (order.SuccessUrl?.ToString() ?? _options.DefaultSuccessUrl)
@@ -53,9 +59,21 @@ public sealed class StripeCheckoutGateway : ICheckoutGateway
                 AutomaticTax = order.AutomaticTax
                     ? new SessionAutomaticTaxOptions { Enabled = true }
                     : null,
-            }, cancellationToken: cancellationToken);
+            }, IdempotentRequest(idempotencyKey, "session"), cancellationToken);
 
-            return new CheckoutSession(session.Id, new Uri(session.Url), customer.Id, session.ExpiresAt);
+            return new CheckoutSession(session.Id, new Uri(session.Url), customerId, session.ExpiresAt);
+        }
+        catch (StripeException e) when (e.StripeError?.Param?.StartsWith("automatic_tax", StringComparison.Ordinal) is true)
+        {
+            // A merchant-account misconfiguration the caller opted into, not a
+            // provider outage — surface it as a 400 with the actual cause. The
+            // 400 path is not logged by the endpoint, so record the full
+            // Stripe failure here; operators must not depend on caller reports
+            // to learn Stripe Tax is broken.
+            Log.AutomaticTaxNotConfigured(_logger, e);
+            throw new DomainValidationException(
+                "automaticTax requires Stripe Tax to be enabled on the merchant account"
+                + $" ({e.StripeError.Message})", e);
         }
         catch (StripeException e)
         {
@@ -64,22 +82,42 @@ public sealed class StripeCheckoutGateway : ICheckoutGateway
     }
 
     /// <summary>
-    /// Reuses the Stripe Customer if one already exists for this email so
-    /// repeat checkouts and subscriptions attach to a single customer record.
-    /// Uses the list endpoint's exact-match email filter rather than Customer
-    /// Search: the search index is eventually consistent, so a just-created
-    /// customer would not be found and repeat checkouts would duplicate it.
+    /// Distinct sub-keys per write: Stripe scopes idempotency keys to a single
+    /// request shape, so reusing the caller's key verbatim on both the
+    /// customer create and the session create would make the second call fail
+    /// as a parameter mismatch.
     /// </summary>
-    private async Task<global::Stripe.Customer> FindOrCreateCustomerAsync(
-        Domain.Customer customer, CancellationToken cancellationToken)
+    private static RequestOptions? IdempotentRequest(string? idempotencyKey, string operation) =>
+        idempotencyKey is null ? null : new RequestOptions { IdempotencyKey = $"{idempotencyKey}:{operation}" };
+
+    /// <summary>
+    /// A caller-supplied provider customer ID wins outright: it is the
+    /// canonical mapping, needs no lookup, and is immune to the
+    /// duplicate-customer race below. Otherwise, reuses the Stripe Customer if
+    /// one already exists for this email so repeat checkouts and subscriptions
+    /// attach to a single customer record. Uses the list endpoint's
+    /// exact-match email filter rather than Customer Search: the search index
+    /// is eventually consistent, so a just-created customer would not be found
+    /// and repeat checkouts would duplicate it. Two concurrent first-time
+    /// checkouts for the same email can still both pass the lookup and create
+    /// duplicates — callers who care should send providerCustomerId.
+    /// </summary>
+    private async Task<string> ResolveCustomerIdAsync(
+        Domain.Customer customer, string? idempotencyKey, CancellationToken cancellationToken)
     {
+        if (customer.ProviderCustomerId is not null)
+            return customer.ProviderCustomerId;
+
         var existing = await _customers.ListAsync(new CustomerListOptions
         {
             Email = customer.Email,
             Limit = 1,
         }, cancellationToken: cancellationToken);
 
-        return existing.Data.FirstOrDefault() ?? await _customers.CreateAsync(new CustomerCreateOptions
+        if (existing.Data.FirstOrDefault() is { } found)
+            return found.Id;
+
+        var created = await _customers.CreateAsync(new CustomerCreateOptions
         {
             Email = customer.Email,
             Name = customer.Name,
@@ -87,7 +125,9 @@ public sealed class StripeCheckoutGateway : ICheckoutGateway
             Metadata = customer.ExternalId is null
                 ? null
                 : new Dictionary<string, string> { ["external_id"] = customer.ExternalId },
-        }, cancellationToken: cancellationToken);
+        }, IdempotentRequest(idempotencyKey, "customer"), cancellationToken);
+
+        return created.Id;
     }
 
     private static SessionLineItemOptions ToLineItem(OrderLine line) => line.Pricing switch
