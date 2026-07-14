@@ -1,0 +1,26 @@
+---
+name: Dependabot Jira Rollup
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+# Each run reconciles the full open Dependabot PR set into one weekly Jira
+# ticket, so concurrent runs are redundant — keep only the newest.
+concurrency:
+  group: dependabot-jira-rollup
+  cancel-in-progress: true
+
+# The rollup only reads PRs; Jira writes are outbound REST calls.
+permissions:
+  pull-requests: read
+
+jobs:
+  rollup:
+    if: github.actor == 'dependabot[bot]'
+    uses: Updater/.github-private/.github/workflows/dependabot-jira-rollup.yaml@main
+    # Dependabot-triggered runs resolve these from the Dependabot secrets
+    # store (org-level), not the Actions store.
+    secrets:
+      jira-email: ${{ secrets.DEPENDABOT_JIRA_EMAIL }}
+      jira-api-token: ${{ secrets.DEPENDABOT_JIRA_API_TOKEN }}
