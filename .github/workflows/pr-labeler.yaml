@@ -168,8 +168,10 @@ jobs:
             }
 
             // ---- AI-tool detection (commit signatures + #tags#) -------------
+            // Claude Code puts its "Generated with [Claude Code]" badge in PR
+            // descriptions as well as commit messages, so scan tagText for it.
             const isClaudeCode =
-              /🤖 Generated with \[Claude Code\]/.test(commitMessages) ||
+              /🤖 Generated with \[Claude Code\]/.test(tagText) ||
               /Co-Authored-By: Claude.*<noreply@anthropic\.com>/i.test(commitMessages) ||
               /#claude_code#/.test(tagText);
             const isCopilot =
