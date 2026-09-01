@@ -1,3 +1,7 @@
 # CODEOWNERS file
 # Please keep this file in sync with the Terraform configuration.
-* @updater/employees
+#
+# "@updater/employees" (everyone in the org) was a repo-wide catch-all that
+# didn't name any real accountable team (DO-7215). Replaced with
+# DC-Developers, the dominant real contributor's actual team.
+* @updater/dc-developers
