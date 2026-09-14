@@ -5,8 +5,8 @@ on:
   pull_request:
     types: [opened, reopened]
 
-# Each run reconciles the full open Dependabot PR set into one weekly Jira
-# ticket, so concurrent runs are redundant — keep only the newest.
+# Each run reconciles the full open Dependabot PR set into one
+# Jira ticket for an upcoming sprint, concurrent runs are redundant
 concurrency:
   group: dependabot-jira-rollup
   cancel-in-progress: true
