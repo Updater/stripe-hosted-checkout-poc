@@ -3,9 +3,10 @@
 #
 # Native replacement for the PR labelling that the decommissioned gitStream
 # automation used to perform (ACT-71). Applies:
-#   * AI-tool labels (🤖 Claude Code / 🤖 Copilot / 🤖 Codex / 🤖 ai-warp) from
-#     commit-message signatures or #claude_code# / #copilot# / #codex# / #warp#
-#     tags in the title/description.
+#   * AI-tool labels (🤖 Claude Code / 🤖 Copilot / 🤖 Codex / 🤖 ai-warp /
+#     🤖 Yagni / 🤖 Pi) from commit-message signatures or
+#     #claude_code# / #copilot# / #codex# / #warp# / #yagni# / #pi# tags in the
+#     title/description.
 #   * a missing-jira label + reminder comment when no Jira ticket is referenced
 #     in the PR title or description.
 #   * an AI Tools Survey comment that captures tools with no commit signature
@@ -74,6 +75,8 @@ jobs:
               ['Devin', '🤖 Devin'],
               ['Atlassian Intelligence', '🤖 Atlassian AI'],
               ['Grammarly', '🤖 Grammarly'],
+              ['Yagni', '🤖 Yagni'],
+              ['Pi', '🤖 Pi'],
               ['Other AI Tool', '🤖 Other AI'],
               ['No AI Assistance', '🧑 No AI'],
             ];
@@ -189,6 +192,14 @@ jobs:
               /<[^>]*@warp\.dev>/i.test(commitMessages) ||
               /app\.warp\.dev/i.test(titleAndBody) ||
               /#warp#/.test(tagText);
+            // Yagni's agent commits with a @yagni.app co-author (name varies).
+            const isYagni =
+              /<[^>]*@yagni\.app>/i.test(commitMessages) ||
+              /#yagni#/i.test(tagText);
+            // Pi's agent commits with a @pi.dev co-author (name varies).
+            const isPi =
+              /<[^>]*@pi\.dev>/i.test(commitMessages) ||
+              /#pi#/i.test(tagText);
 
             if (isClaudeCode && !hasLabel('🤖 Claude Code')) {
               await addAiLabel('🤖 Claude Code', '8A2BE2', 'PR includes Claude Code-assisted changes');
@@ -202,6 +213,12 @@ jobs:
             // Match the pre-existing org label name/color/description exactly.
             if (isWarp && !hasLabel('🤖 ai-warp')) {
               await addAiLabel('🤖 ai-warp', '6F42C1', 'Created by Warp AI agent');
+            }
+            if (isYagni && !hasLabel('🤖 Yagni')) {
+              await addAiLabel('🤖 Yagni', '5319E7', 'PR includes Yagni-assisted changes');
+            }
+            if (isPi && !hasLabel('🤖 Pi')) {
+              await addAiLabel('🤖 Pi', '5319E7', 'PR includes Pi-assisted changes');
             }
 
             // ---- missing-jira -----------------------------------------------
